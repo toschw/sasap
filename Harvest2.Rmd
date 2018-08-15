@@ -1,0 +1,438 @@
+---
+title: "Harvest"
+author: "Tobias Schwoerer"
+date: "March 19, 2018"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+Importing dataset, adding SASAP regions (excludes EEZ catch), had to import by hand due to commas being part of netpounds turning those into factors instead of numeric variables
+Datasets available at https://knb.ecoinformatics.org/#view/urn:uuid:40473bde-9774-4581-aafb-5d2c3b4a70d1
+```{r}
+library(dplyr)
+library(ggplot2)
+library(data.table)
+library(tidyr)
+library(RColorBrewer)
+
+#Importing area by YEAR dataset
+h <- read.csv("https://knb.ecoinformatics.org/knb/d1/mn/v2/object/urn%3Auuid%3A49a6d2fa-d47a-482c-8a28-d8a9623dc16e", stringsAsFactors = FALSE)
+
+#Importing district by YEAR dataset
+DbyY <- read.csv("https://knb.ecoinformatics.org/knb/d1/mn/v2/object/urn%3Auuid%3A6619074a-3037-41a6-8dbf-9bf2988cabec", stringsAsFactors = FALSE)
+
+```
+
+Taking out Kotzebue,Norton Sound, replacing it with district wide data from the DbyY dataset. Note, the h dataset which is AreaByYEAR will contain data that may be confidential in the DistrictByYEAR dataset, so going with AreaByYEAR first is better. Also excluding EEZ harvest
+```{r}
+keep <- c("Bristol Bay","Chignik","Cook Inlet Lower","Cook Inlet Upper","Juneau Hanies","Ketchikan Craig","Kodiak","Kuskokwim","North Peninsula","PWS Copper Bering Rivers","PWS Eastern District","PWS excluding CRBRED","Petersburg Wrangell","Sitka Pelican","South Peninsula","Yakutat","Yukon","Dutch Harbor","Adak Western Aleutians")
+h_ext <- subset (h, AREA %in% keep)  
+#drop the Confidential column
+h_ext <- subset(h_ext, select = -CONFIDENTIAL)
+
+#Adding SASAP regions
+harvest_regions <- read.csv("E:/GoogleDrive/CURRENT_PROJECTS/3_SASAP_salmon_synthesis/Analysis_ref_files/harvest_regions.csv", stringsAsFactors=FALSE)
+h_ext2 <- h_ext %>% 
+  full_join(harvest_regions, by = c("AREA" = "ADFG_Area")) %>%
+  na.omit()
+h_ext2 <- subset(h_ext2, select = -AREA)
+names(h_ext2)[14]<-"SASAP.Region"
+h_ext2 <-h_ext2 [c("SASAP.Region","YEAR","ADFG_H_GEAR_CODE","ADFG_I_SPECIES_CODE","No_of_Fish","Value","NETPOUNDS","WholeLbs","people_count","processor_count","vessel_count","Gear","Species")]
+```
+
+Aggregating district by YEAR data to SASAP region level
+```{r}
+district_region_lut <- read.csv("E:/GoogleDrive/CURRENT_PROJECTS/3_SASAP_salmon_synthesis/Analysis_ref_files/district_region_lut.csv", stringsAsFactors=FALSE)
+lut <- district_region_lut
+DbyY <- left_join(DbyY, lut)
+
+dist_agg <- DbyY %>% 
+  group_by(SASAP.Region,YEAR,ADFG_H_GEAR_CODE, ADFG_I_SPECIES_CODE, Gear,Species) %>% 
+  summarise_at(vars(Value:vessel_count), sum, na.rm = TRUE)%>%
+  drop_na(Value)
+
+#ordering columns for later combination with the area by YEAR data
+dist_agg <-dist_agg [c("SASAP.Region","YEAR","ADFG_H_GEAR_CODE","ADFG_I_SPECIES_CODE","No_of_Fish","Value","NETPOUNDS","WholeLbs","people_count","processor_count","vessel_count","Gear","Species")]
+
+#Subsetting for Norton Sound and Kotzebue
+norton <- subset(dist_agg,SASAP.Region=="Norton Sound")
+kotz <- subset(dist_agg,SASAP.Region=="Kotzebue")
+```
+
+Combining the above to have one dataset for SASAP regions
+```{r}
+harvest_comb <- bind_rows(h_ext2,kotz,norton)
+```
+
+Cleaning trivial data, e.g. gear=herring gillnet, and removing odd records and gear types with very few and small records e.g. pelagic trawl
+```{r}
+harvest_comb <- subset(harvest_comb, Gear !="pelagic/mid-water trawl")
+harvest_comb <- subset(harvest_comb, Gear !="herring gillnet")
+```
+
+Calculating a mean weight by species, year, and region. This is then used to estimate harvest weight for sport and subsistence fisheries
+```{r}
+a1 <- harvest_comb
+a1 <- subset(a1,No_of_Fish!=0)
+a <- a1 %>%
+  mutate(avg_wgt=NETPOUNDS/No_of_Fish)%>%
+  group_by(Species, SASAP.Region, YEAR)%>%
+  summarise(median_wgt = quantile(avg_wgt, probs = c(0.5)),
+                   p05_wgt = quantile(avg_wgt, probs = c(0.05)),
+                   p95_wgt = quantile(avg_wgt, probs = c(0.95))) 
+a_state <- a1 %>%
+  mutate(avg_wgt=NETPOUNDS/No_of_Fish)%>%
+  group_by(Species, YEAR)%>%
+  summarise(median_wgt = quantile(avg_wgt, probs = c(0.5)),
+                   p05_wgt = quantile(avg_wgt, probs = c(0.05)),
+                   p95_wgt = quantile(avg_wgt, probs = c(0.95))) 
+
+
+chinook <- subset(a,Species=="chinook")
+chinook <- ggplot(chinook, aes(x=YEAR,y=median_wgt)) + facet_wrap(~SASAP.Region,ncol = 3, scales = "fixed")+ labs(title="Median, 5th,and 95th percentile in weight of commercially caught chinook salmon by region",x="Year",y="lbs per fish") + geom_ribbon(aes(ymin = p05_wgt, ymax = p95_wgt), fill = "grey70") + geom_line(aes(y = median_wgt))
+chinook
+
+all_other <- subset(a,Species!="chinook")
+#cleaning out data for pink in Yukon that looks odd
+all_other <- subset(all_other, !(Species=="pink"&SASAP.Region=="Yukon"))
+
+sockeye <- subset(all_other,Species=="sockeye")
+sockeye <- ggplot(sockeye, aes(x=YEAR,y=median_wgt)) + facet_wrap(~SASAP.Region,ncol = 3, scales = "fixed")+ labs(title="Median, 5th, and 95th percentile of sockeye weight by region",x="Year",y="lbs per fish") + geom_ribbon(aes(ymin = p05_wgt, ymax = p95_wgt), fill = "grey70") + geom_line(aes(y = median_wgt))
+sockeye
+
+coho <- subset(all_other,Species=="coho")
+coho <- ggplot(coho, aes(x=YEAR,y=median_wgt)) + facet_wrap(~SASAP.Region,ncol = 3, scales = "fixed")+ labs(title="Median, 5th, and 95th percentile of coho weight by region",x="Year",y="lbs per fish") + geom_ribbon(aes(ymin = p05_wgt, ymax = p95_wgt), fill = "grey70") + geom_line(aes(y = median_wgt))
+coho
+
+chum <- subset(all_other,Species=="chum")
+chum <- ggplot(chum, aes(x=YEAR,y=median_wgt)) + facet_wrap(~SASAP.Region,ncol = 3, scales = "fixed")+ labs(title="Median, 5th, and 95th percentile of chum weight by region",x="Year",y="lbs per fish") + geom_ribbon(aes(ymin = p05_wgt, ymax = p95_wgt), fill = "grey70") + geom_line(aes(y = median_wgt))
+chum
+
+pink <- subset(all_other,Species=="pink")
+pink <- ggplot(pink, aes(x=YEAR,y=median_wgt)) + facet_wrap(~SASAP.Region,ncol = 3, scales = "fixed")+ labs(title="Median, 5th, and 95th percentile of pink weight by region",x="Year",y="lbs per fish") + geom_ribbon(aes(ymin = p05_wgt, ymax = p95_wgt), fill = "grey70") + geom_line(aes(y = median_wgt))
+pink
+
+statewide_weights <- ggplot(a_state, aes(x=YEAR,y=median_wgt)) + facet_wrap(~Species,ncol = 3, scales = "free") + labs(title="Statewide Median, 5th, and 95th percentile weight of commercially caught salmon by species",x="Year",y="lbs per fish")+ geom_ribbon(aes(ymin = p05_wgt, ymax = p95_wgt), fill = "grey70") + geom_line(aes(y = median_wgt))
+statewide_weights
+  
+```
+
+Filling zeros for missing data in certain YEARs or for certain species ( better for graphing later)
+```{r}
+h1 <- harvest_comb
+h2 <-expand.grid(SASAP.Region=unique(h1$SASAP.Region), YEAR=1975:2016, Gear=unique(h1$Gear), Species=unique(h1$Species))
+h3 <- merge(h2,h1, by.x=c("SASAP.Region", "YEAR", "Gear","Species"),by.y=c("SASAP.Region", "YEAR", "Gear","Species"), all.x = TRUE)
+h3[is.na(h3)]<-0
+
+harvest<-h3
+```
+
+
+Fraction of commercial catch by geartype and species statewide
+```{r}
+h_gear_species <- harvest %>%
+    group_by(Species, Gear, YEAR) %>%
+    dplyr::summarise(sum_lbs = sum(NETPOUNDS), 
+                     sum_value = sum(Value),
+                     sum_fish = sum(No_of_Fish))
+
+h_total_species <- h_gear_species %>%
+    group_by(Species, YEAR) %>%
+    dplyr::summarise(total_lbs = sum(sum_lbs), 
+                     total_value = sum(sum_value), 
+                     total_fish = sum(sum_fish))
+
+h_prop_species <- h_gear_species %>% 
+  full_join(h_total_species, by = c("Species", "YEAR")) %>%
+  na.omit() %>%
+  dplyr::mutate(prop_lbs = sum_lbs/total_lbs,
+                prop_value = sum_value/total_value, 
+                prop_no_fish = sum_fish/total_fish) 
+```
+
+Figures for proportion of total harvest weight caught by gear type by species
+```{r}
+ggplot(h_prop_species, aes(x=YEAR,y=prop_lbs, fill=Gear)) + geom_area(alpha=0.6, size=1,colour="black") + facet_wrap(~Species,ncol = 3, scales = "free")+ labs(fill = "Gear",title="Statewide Commercial Salmon Harvest by Species and Gear Type",x="Year",y="Proportion of harvest weight")
+```
+
+
+Fraction of commercial catch by gear type by region over time
+##Needs to be fixed to exclude some of the rare gear types
+```{r}
+h_sum_by_gear <- harvest %>%
+    group_by(SASAP.Region, Gear, YEAR) %>%
+    dplyr::summarise(sum_lbs = sum(NETPOUNDS), 
+                     sum_value = sum(Value),
+                     sum_fish = sum(No_of_Fish))
+
+h_total <- h_sum_by_gear %>%
+    group_by(SASAP.Region, YEAR) %>%
+    dplyr::summarise(total_lbs = sum(sum_lbs), 
+                     total_value = sum(sum_value), 
+                     total_fish = sum(sum_fish))
+
+h_prop <- h_sum_by_gear %>% 
+  full_join(h_total, by = c("SASAP.Region", "YEAR")) %>%
+  na.omit() %>%
+  dplyr::mutate(prop_lbs = sum_lbs/total_lbs,
+                prop_value = sum_value/total_value, 
+                prop_no_fish = sum_fish/total_fish) 
+```
+
+Figures for proportion of total harvest weight caught by gear type
+```{r}
+ggplot(h_prop, aes(x=YEAR,y=prop_lbs, fill=Gear)) + geom_area(alpha=0.6, size=1,colour="black") + facet_wrap(~SASAP.Region,ncol = 3, scales = "free") + labs(fill = "Gear",title="Commercial Salmon Harvest by Region and Gear Type",x="Year",y="Proportion of harvest weight")
+```
+
+Fraction of commercial catch by species, gear type, and region over time
+```{r}
+h_sum_by_gearS <- harvest %>%
+    group_by(SASAP.Region, Gear, YEAR, Species) %>%
+    dplyr::summarise(sum_lbs = sum(NETPOUNDS), 
+                     sum_value = sum(Value),
+                     sum_fish = sum(No_of_Fish))
+
+h_totalS <- h_sum_by_gearS %>%
+    group_by(SASAP.Region, YEAR, Species) %>%
+    dplyr::summarise(total_lbs = sum(sum_lbs), 
+                     total_value = sum(sum_value), 
+                     total_fish = sum(sum_fish))
+
+h_propS <- h_sum_by_gearS %>% 
+  full_join(h_totalS, by = c("SASAP.Region", "YEAR","Species")) %>%
+  na.omit() %>%
+  dplyr::mutate(prop_lbs = sum_lbs/total_lbs,
+                prop_value = sum_value/total_value, 
+                prop_no_fish = sum_fish/total_fish) 
+
+
+```
+
+Figures for proportion of total harvest weight by species, gear type, and region over time
+```{r}
+chinook <- ggplot(subset(h_propS,Species=="chinook"), aes(x=YEAR,y=prop_lbs, fill=Gear)) + geom_area(alpha=0.6, size=1,colour="black") + facet_wrap(~SASAP.Region,ncol = 3, scales = "fixed")+ labs(fill = "Gear",title="Commercial Chinook Harvest by Region and Gear Type",x="Year", y="Proportion of harvest weight")
+chinook
+
+chum <- ggplot(subset(h_propS,Species=="chum"), aes(x=YEAR,y=prop_lbs, fill=Gear)) + geom_area(alpha=0.6, size=1,colour="black") + facet_wrap(~SASAP.Region,ncol = 3, scales = "fixed")+ labs(fill = "Gear",title="Commercial Chum Harvest by Region and Gear Type",x="Year", y="Proportion of harvest weight")
+chum
+
+coho <- ggplot(subset(h_propS,Species=="coho"), aes(x=YEAR,y=prop_lbs, fill=Gear)) + geom_area(alpha=0.6, size=1,colour="black") + facet_wrap(~SASAP.Region,ncol = 3, scales = "fixed")+ labs(fill = "Gear",title="Commercial Coho Harvest by Region and Gear Type",x="Year", y="Proportion of harvest weight")
+coho
+
+pink <- ggplot(subset(h_propS,Species=="pink"), aes(x=YEAR,y=prop_lbs, fill=Gear)) + geom_area(alpha=0.6, size=1,colour="black") + facet_wrap(~SASAP.Region,ncol = 3, scales = "fixed") + labs(fill = "Gear", title="Commercial Pink Harvest by Region and Gear Type",x="Year", y="Proportion of harvest weight")
+pink
+
+sockeye <- ggplot(subset(h_propS,Species=="sockeye"), aes(x=YEAR,y=prop_lbs, fill=Gear)) + geom_area(alpha=0.6, size=1,colour="black") + facet_wrap(~SASAP.Region,ncol = 3, scales = "fixed")+ labs(fill = "Gear", title="Commercial Sockeye Harvest by Region and Gear Type",x="Year", y="Proportion of harvest weight")
+sockeye
+```
+
+
+# Sport fish harvest available at: https://knb.ecoinformatics.org/#view/urn:uuid:6a6a530f-3660-424f-adab-c771d1c89a5d
+```{r}
+sf_h <- read.csv("https://knb.ecoinformatics.org/knb/d1/mn/v2/object/urn%3Auuid%3A22ef5022-8ade-4549-acac-c18656dd2033", stringsAsFactors = FALSE)
+
+
+sf_c <- read.csv("https://knb.ecoinformatics.org/knb/d1/mn/v2/object/urn%3Auuid%3A542141d3-ed5a-4d97-b759-28a17757b0b8", stringsAsFactors = FALSE)
+
+
+#renaming Alaska Peninsula Region name
+sf_h2 <- sf_h %>%
+     mutate(region_name=replace(region_name,  region_name=="Aleutian Islands", "Alaska Peninsula and Aleutian Islands")) 
+
+#add weight information from commercial fisheries catch to sport fish harvest, for missing values use statewide mean weight by species
+sf_h2 <- sf_h2 %>% 
+  full_join(a, by = c("region_name" = "SASAP.Region","species"="Species", "year"="YEAR"))
+
+sf_h3 <- sf_h2 %>%
+    left_join(a_state, by = c("species"="Species","year"="YEAR"))
+
+sf_h3$median_wgt.x <- ifelse(is.na(sf_h3$median_wgt.x),sf_h3$median_wgt.y,sf_h3$median_wgt.x)
+sf_h3$p05_wgt.x <- ifelse(is.na(sf_h3$p05_wgt.x),sf_h3$p05_wgt.y,sf_h3$p05_wgt.x)
+sf_h3$p95_wgt.x <- ifelse(is.na(sf_h3$p95_wgt.x),sf_h3$p95_wgt.y,sf_h3$p95_wgt.x)
+sf_h3 <- subset(sf_h3, select = -c(p95_wgt.y, p05_wgt.y,median_wgt.y))
+ #renaming 
+names(sf_h3)[names(sf_h3)=="median_wgt.x"] <- "median_wgt"
+names(sf_h3)[names(sf_h3)=="p05_wgt.x"] <- "p05_wgt"
+names(sf_h3)[names(sf_h3)=="p95_wgt.x"] <- "p95_wgt"
+```
+
+Calculating sport fish harvest weight for resident and non-resident point estimates, the total harvest weights, also rearrange dataset
+```{r}
+sfHarvest <- filter(sf_h3,sf_h3$TYPE=="0-EST")
+sfHarvest$harvest_lbs <- sfHarvest$median_wgt*sfHarvest$harvest
+
+#combining non-resident and resident sport fish harvest and effort
+sfHarTot <- sfHarvest%>%
+  group_by(year, region_name, species)%>%
+  summarise(total_lbs = sum(harvest_lbs),
+            total_DF = sum(DF),
+            total_FISH = sum(FISH_TOTAL),
+            total_salmon = sum(harvest))
+sfHarTot$salmon_score <- sfHarTot$total_salmon/sfHarTot$total_FISH
+```
+
+Figures for proportion of salmon caught to overall sport fish caught fish by species and region
+```{r}
+ggplot(sfHarTot, aes(x=year,y=salmon_score, fill=species)) + geom_area(alpha=0.6, size=1,colour="black") + facet_wrap(~region_name,ncol = 3, scales = "fixed")+ labs(fill = "Species",title="Proportion of salmon harvested among all sportfish by region and species",x="Year",y="Proportion of harvested fish")
+```
+
+#Subsistence harvest available at https://knb.ecoinformatics.org/#view/urn:uuid:a7d46a96-2bbf-4131-a291-339b950b334e , this file includes only "All Permit Types" therefore, we need to subtract the personal use harvest and add it later, recoding the "permit type" 
+```{r}
+ss <- read.csv("https://knb.ecoinformatics.org/knb/d1/mn/v2/object/urn%3Auuid%3A552cfff5-c192-411a-a9ab-11ffe434dbc4", stringsAsFactors = FALSE)
+
+ss <- mutate_at(ss,vars(Species), funs(tolower))
+
+ss2 <- ss%>%                
+  group_by(SASAP.Region, Community, Year, PermitTypeName, Species)%>%
+  summarise(HarvestLbs = sum(HarvestLbs))
+
+pu <- read.csv("https://knb.ecoinformatics.org/knb/d1/mn/v2/object/urn%3Auuid%3A638adfdc-8313-45f5-b437-886556dfdf34", stringsAsFactors = FALSE)
+PUregions <- read.csv("E:/GoogleDrive/CURRENT_PROJECTS/3_SASAP_salmon_synthesis/Analysis_ref_files/pu_regions.csv", stringsAsFactors = FALSE) 
+
+pu <- pu %>%
+  left_join(PUregions, by="FisheryName")
+
+pu <- mutate_at(pu,vars(Species), funs(tolower))
+pu2 <- pu%>%                
+  group_by(SASAP.Region, Community, Year, PermitTypeName, Species)%>%
+  summarise(HarvestLbs = sum(HarvestLbs))
+
+pu_ss_comb <- ss2 %>%
+  full_join(pu2, by=c("SASAP.Region","Community","Year","Species"))%>%
+  mutate(HarvestLbs = HarvestLbs.x-HarvestLbs.y)%>%
+  drop_na(SASAP.Region)
+
+#renaming some columns, and recoding SASAP.Regions to be consistent
+names(pu_ss_comb)[names(pu_ss_comb)=="HarvestLbs.y"] <- "PU"
+names(pu_ss_comb)[names(pu_ss_comb)=="HarvestLbs"] <- "SS"
+pu_ss_comb$SASAP.Region <- ifelse(pu_ss_comb$SASAP.Region=="Aleutian Islands","Alaska Peninsula and Aleutian Islands",pu_ss_comb$SASAP.Region)
+
+pu_ss_comb$SS <- ifelse(is.na(pu_ss_comb$SS), pu_ss_comb$HarvestLbs.x, pu_ss_comb$SS)
+pu_ss_comb$PU <- ifelse(is.na(pu_ss_comb$PU), 0, pu_ss_comb$PU)
+
+pu_ss_comb2 <-pu_ss_comb %>% 
+   gather(PermitType,lbs, SS,PU)
+#cleaning up columns
+ss3 <- subset(pu_ss_comb2, select = -c(PermitTypeName.x,HarvestLbs.x,PermitTypeName.y))
+# aggregating by region to take out by community detail (community is the city of residence of the subsistence permit owner)
+ss4 <- ss3%>%
+  group_by(SASAP.Region,Year,PermitType,Species)%>%
+  summarise(harvestLbs=sum(lbs))
+ss4[is.na(ss4)]<-0
+
+subsistence <- subset(ss4,PermitType=="SS",select = -PermitType)
+personalUse <- subset(ss4,PermitType=="PU", select = -PermitType)
+```
+
+Combining datasets
+```{r}
+#combining gear types in commercial data
+harvest2 <- harvest%>%
+  group_by(Species, SASAP.Region, YEAR)%>%
+  summarise(No_of_Fish = sum(No_of_Fish),
+            NETPOUNDS = sum(NETPOUNDS))
+#combining datasets
+comb_sf_com <- harvest2%>%
+  dplyr::full_join(sfHarTot, by = c("SASAP.Region"="region_name","Species"="species","YEAR"="year"))  
+comb_sf_com[is.na(comb_sf_com)]<-0
+
+comb_sf_ss_com <- comb_sf_com %>%
+  dplyr::full_join(subsistence, by = c("SASAP.Region","Species","YEAR"="Year"))%>%
+  dplyr::full_join(personalUse, by = c("SASAP.Region","Species","YEAR"="Year"))
+  
+comb_sf_ss_com[is.na(comb_sf_ss_com)]<-0
+  
+  
+
+#summarizing all salmon species
+sf_com <- comb_sf_ss_com%>%
+  group_by(SASAP.Region, YEAR)%>%
+  summarise(sportfish = sum(total_lbs)/1000000,
+            commercial = sum(NETPOUNDS)/1000000,
+            subsistence = sum(harvestLbs.x)/1000000,
+            personalUse = sum(harvestLbs.y)/1000000)
+
+sf_com_raw <- comb_sf_ss_com%>%
+  group_by(SASAP.Region, YEAR)%>%
+  summarise(sportfish = sum(total_lbs),
+            commercial = sum(NETPOUNDS),
+            subsistence = sum(harvestLbs.x),
+            personalUse = sum(harvestLbs.y))
+
+
+#subsetting to only years where all sportfish, commercial, and subsistence data is available, which is 1996 on
+plot_data <- subset(sf_com, YEAR>=1996)
+#gathering for plotting
+plot_data <- plot_data%>%
+  gather(stakeholder,million_lbs, commercial,sportfish, subsistence, personalUse)
+
+CI_plot <- subset(plot_data, SASAP.Region =="Cook Inlet")
+CR_plot <- subset(plot_data, SASAP.Region =="Copper River")
+```
+
+Harvest lbs by stakeholder group by region
+```{r}
+ggplot(plot_data, aes(x=YEAR,y=million_lbs,fill=stakeholder)) + geom_bar(stat="identity",position=position_stack(reverse=T)) + facet_wrap(~SASAP.Region,ncol = 3, scales = "free")+ labs(title="Salmon harvested by stakeholder group by region",x="Year",y="million lbs harvested") +theme(legend.position = c(0.9, 0.05)) + scale_fill_brewer(palette="Spectral")
+
+CI <- ggplot(CI_plot, aes(x=YEAR,y=million_lbs,fill=stakeholder)) + geom_bar(stat = "identity", position=position_stack(reverse=T)) + labs(title="Salmon harvested by stakeholder group in Cook Inlet",x="Year",y="million lbs harvested") + scale_fill_brewer(palette="Spectral")
+CI
+
+CR <- ggplot(CR_plot, aes(x=YEAR,y=million_lbs,fill=stakeholder)) + geom_bar(stat = "identity", position=position_stack(reverse=T)) + labs(title="Salmon harvested by stakeholder group in the Copper River Region",x="Year",y="million lbs harvested") + scale_fill_brewer(palette="Spectral")
+CR
+
+```
+
+Statewide harvest lbs by stakeholder allocation
+```{r}
+sf_com_state <- comb_sf_ss_com%>%
+  group_by(YEAR)%>%
+  summarise(sportfish = sum(total_lbs)/1000000,
+            commercial = sum(NETPOUNDS)/1000000,
+            subsistence = sum(HarvestLbs)/1000000,
+            total = sum(sportfish,commercial,subsistence))
+
+
+#subsetting to only years where all sportfish, commercial, and subsistence data is available, which is 1996 on
+plot_data_state <- subset(sf_com_state, YEAR>=2015)   
+#gathering for plotting
+plot_data_state <- plot_data_state%>%
+  gather(stakeholder,million_lbs, commercial,sportfish, subsistence)
+```
+
+
+COPIED FROM ELSEWHERE
+Fraction of commercial catch by species, gear type, and region over time
+```{r}
+h_sum_by_gearS <- harvest %>%
+    group_by(SASAP.Region, Gear, YEAR, Species) %>%
+    dplyr::summarise(sum_lbs = sum(NETPOUNDS), 
+                     sum_value = sum(Value),
+                     sum_fish = sum(No_of_Fish))
+
+h_totalS <- h_sum_by_gearS %>%
+    group_by(SASAP.Region, YEAR, Species) %>%
+    dplyr::summarise(total_lbs = sum(sum_lbs), 
+                     total_value = sum(sum_value), 
+                     total_fish = sum(sum_fish))
+
+h_propS <- h_sum_by_gearS %>% 
+  full_join(h_totalS, by = c("SASAP.Region", "YEAR","Species")) %>%
+  na.omit() %>%
+  dplyr::mutate(prop_lbs = sum_lbs/total_lbs,
+                prop_value = sum_value/total_value, 
+                prop_no_fish = sum_fish/total_fish) 
+
+
+```
+
+Figures for proportion of total harvest weight by species, gear type, and region over time
+```{r}
+chinook <- ggplot(subset(h_propS,Species=="chinook"), aes(x=YEAR,y=prop_lbs, fill=Gear)) + geom_area(alpha=0.6, size=1,colour="black") + facet_wrap(~SASAP.Region,ncol = 3, scales = "fixed")+ labs(fill = "Gear",title="Commercial Chinook Harvest by Region and Gear Type",x="Year", y="Proportion of harvest weight")
+chinook
+
+```
+
+
+
+
+

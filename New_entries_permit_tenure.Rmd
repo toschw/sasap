@@ -1,0 +1,163 @@
+---
+title: "Permit data analysis: Tenure and Migration"
+author: "Tobias Schwoerer and Jeanette Clark"
+date: "3/9/2018"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+##Ideas on data presentations:
+- tenure histogram
+
+#NOTE, the statewide fisheries such as the S05B salmon hand troll and the S15B power troll are not part of this analysis because a local category cannot be established
+#Read in public permit database, load libraries, set color palette, prepare reference tables
+
+```{r}
+library(data.table)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(RColorBrewer)
+
+p <- read.csv(url("https://knb.ecoinformatics.org/knb/d1/mn/v2/object/urn%3Auuid%3A02126b87-a78b-46ed-8214-3236f234d0b7"))
+
+#Reference table of communities by SASAP Regions incl. CFEC defined urban communities
+regions <- read.csv("E:/GoogleDrive/CURRENT_PROJECTS/3_SASAP_salmon_synthesis/Analysis_ref_files/index_table_051118.csv", stringsAsFactors=F)
+regions <- subset(regions,select= c("Community", "SASAPRegions","Urban"))
+regions <- mutate_at(regions,vars(Community), funs(toupper))
+```
+
+#Subset of individual salmon permit owners
+```{r}
+salmon1 <- unique(p$Fishery[grep("^S", p$Fishery)])
+s <- subset(p, Fishery %in% salmon1)
+```
+
+
+Subset for Alaska residents, and permits held by the current owner. Find unique combinations of City, Fishery, Permit.Number, and Year. We use Permit.Number to track permits since this is transferrable between owners, and we are interested in looking at how long permits stay in a community.
+```{r}
+res <- subset(s, Residency == "R" & Permit.Status == "Current Owner")
+
+tenure <- unique(res[, c("City", "Fishery","Permit.Number", "Year")])
+tenure$yr <- 1
+```
+
+
+Create dataframe with cumulative sum over years, showing the number of years a permit has been in a community by year.
+```{r}
+tenure <- tenure %>% 
+    group_by(Permit.Number, City, Fishery) %>% 
+    dplyr::mutate(cum_yrs = cumsum(yr)) %>% 
+  ungroup()
+```
+
+Create summary dataframe showing the mean and standard deviation of the tenure, and the number of permits by city, fishery, and year.
+```{r}
+tenure_summary <- tenure %>%
+    group_by(City, Year, Fishery) %>%
+    dplyr::summarise(avg_tenure = mean(cum_yrs), 
+                     sd_tenure = sd(cum_yrs), 
+                     num_permits = length(unique(Permit.Number)))
+```
+
+calculating mean tenure across all salmon fisheries by region, drop NAs (non-AK communities)
+```{r}
+salmon_tenure3 <- tenure_summary %>%
+  group_by(SASAPRegions, Year) %>%
+  dplyr::summarize(mn = mean(avg_tenure),
+                   sum = sum(num_permits))
+
+```
+
+Calculating first differences
+```{r}
+salmon_tenure4 <- salmon_tenure3 %>%
+  dplyr::mutate(Diff = c(NA, diff(mn)))
+```
+
+Figure, first difference, free scale rather than "fixed"
+```{r}
+t <- ggplot(salmon_tenure4, aes(Year, Diff)) + geom_point() + geom_smooth(span=0.6)+ facet_wrap(~SASAPRegions,ncol = 3, scales = "free") +
+  guides(colour = "none") +
+  geom_hline(aes(yintercept = 0)) +colScale
+t
+```
+
+Figure, number of permits held by residents of each region (data prior to 1980 truncated)
+```{r}
+p <- ggplot(salmon_tenure4, aes(Year, sum)) + geom_line(data=salmon_tenure4[salmon_tenure4$Year>=1980,]) + facet_wrap(~SASAPRegions,ncol = 3, scales = "free") + guides(colour = "none") 
+p
+```
+
+New entrants by year and region
+```{r}
+salmon <- unique(tenure$Fishery[grep("^S", tenure$Fishery)])
+salmon_tenure <- subset(tenure, Fishery %in% salmon)
+
+entrants  <- filter(salmon_tenure, cum_yrs == 1) 
+entrants <- entrants %>%  
+  group_by(City, Year, Fishery) %>%
+    dplyr::summarise(entrants = sum(cum_yrs))
+
+#adding gear description to fisheries code
+g <- read.csv("E:/GoogleDrive/CURRENT_PROJECTS/3_SASAP_salmon_synthesis/Analysis_ref_files/gear_codes.csv", stringsAsFactors = F)
+
+entrants$gear_code <- substr(entrants$Fishery,2,3)
+entrants$gear_code <- as.integer(entrants$gear_code)
+
+entrants <- entrants %>% 
+  full_join(regions, by = c("City" = "Community")) %>%
+  full_join(g, by = c("gear_code" = "CODE")) %>%
+  na.omit()
+
+#the following gear types are very spotty and mess up the figures
+omitted <- c("Beach seine","Fish wheel", "Other","Hatchery")
+
+entrants_region <- entrants %>%
+  filter(Year>=1975)%>%
+  group_by(SASAPRegions,Year,ADFG_H_GEAR_CODE)%>%
+  dplyr::summarise(entrants_sum = sum(entrants))
+
+#filling in missing data for years that are not showing in the data but should be zero
+df1 <- entrants_region
+df2 <-expand.grid(SASAPRegions=unique(df1$SASAPRegions), Year=1975:2016, ADFG_H_GEAR_CODE=unique(df1$ADFG_H_GEAR_CODE))
+df3 <- merge(df2,df1, by=c("SASAPRegions", "Year", "ADFG_H_GEAR_CODE"), all.x = TRUE)
+df3[is.na(df3)]<-0
+entrants_region <- df3
+```
+
+Figure of new entrants by region and year
+```{r}
+entrants_region2 <- entrants %>%
+  filter(Year>=1990)%>%
+  group_by(SASAPRegions,Year)%>%
+  dplyr::summarise(entrants_sum = sum(entrants))
+
+ggplot(entrants_region2, aes(x=Year,y=entrants_sum)) + geom_line() + facet_wrap(~SASAPRegions,ncol = 3, scales = "free")
+
+```
+
+Figure of new entrants by gear type
+```{r}
+
+entrants_gear <- entrants %>%
+  filter(Year>=1990,!ADFG_H_GEAR_CODE %in% omitted)%>%
+  group_by(Year,ADFG_H_GEAR_CODE)%>%
+  dplyr::summarise(entrants_sum = sum(entrants))
+
+ggplot(entrants_gear, aes(x=Year,y=entrants_sum, fill=ADFG_H_GEAR_CODE)) + geom_area(alpha=0.6, size=1,colour="black") 
+
+```
+
+Figure of new entrants by region and gear type as a proportion
+```{r}
+entrants_gear_total <- entrants_region %>%
+  group_by(SASAPRegions,Year) %>%
+  dplyr::summarise(total_entrants = sum(entrants_sum))
+
+entrants_prop <- entrants_gear_total %>% 
+  full_join(entrants_region, by = c("Year","SASAPRegions")) %>%
+  dplyr::mutate(entrants_prop = entrants_sum/total_entrants)
+
+ggplot(entrants_prop, aes(x=Year,y=entrants_prop, fill=ADFG_H_GEAR_CODE)) + geom_area(alpha=0.6, size=1,colour="black") + facet_wrap(~SASAPRegions,ncol = 3, scales = "free")
+```

@@ -1,0 +1,211 @@
+---
+title: "CatchEfficiency"
+author: "Tobias Schwoerer"
+date: "May 18, 2018"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+Fishing vessels in Alaska fall into two categories for registration purposes: 1) Coast Guard certified, and 2) not CG certified. For 1) the owners needs to register with the CG, for 2) registration with DMV occurs. Each boat has a unique ADFG ID that stays with the boat over its lifetime (valid for skiffs and boats in the case of Purse Seine)
+
+#Importing vessel information from CFEC
+```{r setup, include=FALSE}
+library(Hmisc)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(ggplot2)
+library(data.table)
+library(RColorBrewer)
+library(Hmisc)
+
+#importing datasets on fishing vessels available from CFEC and the registered boats database from DMV 
+vessels <- read.csv("https://knb.ecoinformatics.org/knb/d1/mn/v2/object/knb.92147.1",stringsAsFactors = FALSE)
+ 
+regions <-  read.csv("E:/GoogleDrive/CURRENT_PROJECTS/3_SASAP_salmon_synthesis/Analysis_ref_files/index_table_051118.csv", stringsAsFactors=FALSE)
+
+#calculating age of vessels
+cfec <- mutate(vessels, age = Year-Year.Built)
+#flagging Coast Guard registered vessels
+cfec$CG <- ifelse(cfec$Coast.Guard..=="",0,1)
+#flagging salmon boats
+cfec$salmon <- ifelse(cfec$Salmon.Registration.Area=="N/A",0,1)
+
+#subsets of salmon boats
+salmon_fleet <- subset(cfec, salmon==1)
+salmon_fleet$SASAP.Region <- with(salmon_fleet,ifelse(Salmon.Registration.Area=="Yakutat","Southeast",ifelse(Salmon.Registration.Area=="Peninsula/Aleutian Islands","Alaska Peninsula and Aleutian Islands", ifelse(Salmon.Registration.Area=="Lower Yukon","Yukon", Salmon.Registration.Area))))
+
+
+#coding residency status to match other datasets coding convention
+salmon_fleet$Residency <- ifelse(salmon_fleet$State =="AK","res","non")
+#participating in other than salmon fisheries, as indicated by other non-salmon gear
+salmon_fleet$other.gear <- with(salmon_fleet, ifelse(Freezer.Canner=="Yes"|Tender.Packer=="Yes"|Charter=="Yes"|Long.Line=="Yes"|Otter.Trawl=="Yes"|Pots=="Yes"|Beam.Trawl=="Yes"|Scallop.Dredge=="Yes"|Mechanical.Jig=="Yes"|Double.Otter.Trawl=="Yes"|Herring.Gill.Net=="Yes"|Pair.Trawl=="Yes"|Diving.Hand.Picking=="Yes",1,0))
+
+#flagging Copper Riverdrift gillnetters and adding SASAP.Region Copper River
+salmon_fleet$SASAP.Region <- with(salmon_fleet, ifelse(SASAP.Region=="Prince William Sound" & Drift.Gill.Net =="Yes","Copper River",SASAP.Region))
+
+#recoding yes values to numeric 1 and 0 for gear
+salmon_fleet <- salmon_fleet%>%
+  mutate_at(vars(29:49),funs(ifelse(Purse.Seine=="Yes"|Beach.Seine=="Yes"|Drift.Gill.Net=="Yes"|Set.Gill.Net=="Yes"|Hand.Troll=="Yes"|Fish.Wheel=="Yes"|Power.Troll=="Yes",1,0)))
+salmon_fleet$Refrigeration <- ifelse(salmon_fleet$Refrigeration=="Yes",1,0)
+```
+
+
+#Creating summary tables for fleet
+```{r}
+#salmon_gear <- c("Purse.Seine","Beach.Seine","Drift.Gill.Net","Set.Gill.Net","Hand.Troll","Fish.Wheel","Power.Troll")
+
+fleet_sum <- salmon_fleet %>%
+  gather(Gear,cases, Purse.Seine,Drift.Gill.Net,Beach.Seine,Set.Gill.Net,Hand.Troll,Fish.Wheel,Power.Troll)%>%
+  filter(cases==1)%>%
+  group_by(SASAP.Region,Year,Gear,Residency)%>%
+  summarise(AvgHP = mean(Horse.Power),
+            AvgTons = mean(Gross.Tons),
+            AvgAge = mean(age),
+            fleetSize = n_distinct(ADFG.Number))
+
+```
+What I learned:
+Looks like the maximum horsepower data are outliers or crappy data. Rather than taking the sum of horsepower across the fleet, maybe better to stick to the mean and compare to mean catch.
+
+
+#Importing BIT harvest and exvessel data from CFEC
+```{r}
+BIT <- read.csv("https://knb.ecoinformatics.org/knb/d1/mn/v2/object/urn%3Auuid%3Aaa308395-54f6-412c-9ca3-0112a1d67938", stringsAsFactors=FALSE)
+#deleting the space in the fisheries code to be consistent with other datasets
+BIT$Fishery <- gsub(" ", "", BIT$Fishery, fixed = TRUE)
+#salmon permit subset
+salmon <- unique(BIT$Fishery[grep("^S", BIT$Fishery)])
+BITs <- subset(BIT, Fishery %in% salmon)
+
+#determining fisheries and years for which we have average earnings (pounds), then fill that in for any missing and throw out remaining missing (19 records with fewer than 3 permits fished)
+BITs$Resident.Average.Earnings <- ifelse(is.na(BITs$Resident.Average.Earnings), BITs$Average.Earnings,BITs$Resident.Average.Earnings)
+BITs$Resident.Average.Pounds <- ifelse(is.na(BITs$Resident.Average.Pounds), BITs$Average.Pounds,BITs$Resident.Average.Pounds)
+BITs$Nonresident.Average.Earnings <- ifelse(is.na(BITs$Nonresident.Average.Earnings), BITs$Average.Earnings,BITs$Nonresident.Average.Earnings)
+BITs$Nonresident.Average.Pounds <- ifelse(is.na(BITs$Nonresident.Average.Pounds), BITs$Average.Pounds,BITs$Nonresident.Average.Pounds)
+
+BITs <- BITs %>% 
+  drop_na(Resident.Average.Earnings,Nonresident.Average.Earnings,Resident.Average.Pounds,Nonresident.Average.Pounds)
+
+#join SASAP.Regions
+fishery_region <- read.csv("E:/GoogleDrive/CURRENT_PROJECTS/3_SASAP_salmon_synthesis/Analysis_ref_files/fishery_codes_regions.csv", stringsAsFactors=FALSE)
+
+BITs <- BITs %>%
+  left_join(fishery_region, by=c("Fishery"))
+
+#joining consistent gear types with the vessel data
+gearCodes <- read.csv("E:/GoogleDrive/CURRENT_PROJECTS/3_SASAP_salmon_synthesis/Analysis_ref_files/gear_codes_vessels.csv",stringsAsFactors=F)
+BITs$GearCode <- as.numeric(substr(BITs$Fishery, 2, 3))
+BITs <- BITs%>%
+  left_join(gearCodes,by=c("GearCode"="CODE"))
+
+#Creating summary tables
+BIT_sum <- BITs%>%
+  gather(Residency,HarvestLbs,Resident.Average.Pounds, Nonresident.Average.Pounds)
+BIT_sum$Residency <- ifelse(BIT_sum$Residency=="Resident.Average.Pounds","res","non")
+
+BIT_sum2 <- BIT_sum%>%
+  group_by(SASAPRegions,Year, ADFG_H_GEAR_CODE,Residency)%>%
+  summarise(MeanLbs = mean(HarvestLbs))
+#Note, for the most part, the mean remains the average harvest in line above
+```
+
+#Combining harvest data
+```{r}
+fleet <- fleet_sum%>%
+ left_join(BIT_sum2, by=c("SASAP.Region"="SASAPRegions","Year","Residency","Gear"="ADFG_H_GEAR_CODE"))%>%
+ filter(MeanLbs!=0)%>%
+ drop_na(MeanLbs)
+
+#Creating subset for Purse Seine and Drift Gill Net
+PSGN <- subset(fleet, Gear=="Purse.Seine" |Gear=="Drift.Gill.Net")
+PSGN$eff <- PSGN$AvgHP/PSGN$MeanLbs*1000 
+#eliminating outliers
+PSGN <- subset(PSGN, eff<=60)
+
+PS <- subset(PSGN, Gear=="Purse.Seine" )
+DG <- subset(PSGN, Gear=="Drift.Gill.Net" )
+```
+
+#Plotting mean Horse Power and HP/1000lbs of fish caught
+```{r}
+
+ggplot(PSGN) + 
+  facet_wrap(~SASAP.Region,ncol = 3, scales = "fixed")+
+  geom_line(aes(x=Year,y=AvgHP,color=Gear,linetype= Residency), size=1, show.legend=T, text = element_text(size=30)) + 
+  labs(title="Mean Horse Power of Salmon Fishing Fleet by Region, Gear, and Owner Residence (1978-2016)",x="Year",y="mean HP") +
+  theme_bw()
+
+
+
+
+
+ggplot(BIT_sum2) + facet_wrap(~SASAPRegions,ncol = 3, scales = "free")+ labs(title="Average harvest (1975-2016)",x="Year",y="mean lbs") + geom_point(aes(x=Year,y=MeanLbs/1000,color=Residency),size=1) +  geom_smooth(aes(x=Year, y=MeanLbs/1000, color=Residency),span=1) + theme_bw() + opts(legend.position = "bottom")
+
+
+ggplot(DG) + facet_wrap(~SASAP.Region,ncol = 3, scales = "free")+ labs(title="Drift Gillnet Horse Power per 1000lbs Caught by Region and Gear (1975-2016)",x="Year",y="mean HP/ mean catch in 1000's lbs") + geom_point(aes(x=Year,y=eff,color=Gear),size=1, show.legend=F,text = element_text(size=20)) +geom_smooth(aes(x=Year, y=eff, color=Gear),span=0.7,show.legend=F) +ylim(0,20)+ theme_bw(base_size = 15)
+
+ggplot(PS) + facet_wrap(~SASAP.Region,ncol = 3, scales = "free")+ labs(title="Drift Gillnet Horse Power per 1000lbs Caught by Region and Gear (1975-2016)",x="Year",y="mean HP/ mean catch in 1000's lbs") + geom_point(aes(x=Year,y=eff,color=blues9),size=1, show.legend=F,text = element_text(size=20)) +geom_smooth(aes(x=Year, y=eff, color=blues9),span=0.7,show.legend=F) +ylim(0,20)+ theme_bw(base_size = 15)
+
+
+```
+
+
+
+
+
+
+
+
+
+Importing ADFG harvest dataset (NOTE this is not the BIT from CFEC), adding SASAP regions (excludes EEZ catch), had to import by hand due to commas being part of netpounds turning those into factors instead of numeric variables
+Datasets available at https://knb.ecoinformatics.org/#view/urn:uuid:40473bde-9774-4581-aafb-5d2c3b4a70d1
+```{r}
+#Importing area by YEAR dataset
+h <- read.csv("https://knb.ecoinformatics.org/knb/d1/mn/v2/object/urn%3Auuid%3A49a6d2fa-d47a-482c-8a28-d8a9623dc16e", stringsAsFactors = FALSE)
+
+#Importing district by YEAR dataset
+DbyY <- read.csv("https://knb.ecoinformatics.org/knb/d1/mn/v2/object/urn%3Auuid%3A6619074a-3037-41a6-8dbf-9bf2988cabec", stringsAsFactors = FALSE)
+
+#Taking out Kotzebue,Norton Sound, replacing it with district wide data from the DbyY dataset. Note, the h dataset which is AreaByYEAR will contain data that may be confidential in the DistrictByYEAR dataset, so going with AreaByYEAR first is better. Also excluding EEZ harvest
+keep <- c("Bristol Bay","Chignik","Cook Inlet Lower","Cook Inlet Upper","Juneau Hanies","Ketchikan Craig","Kodiak","Kuskokwim","North Peninsula","PWS Copper Bering Rivers","PWS Eastern District","PWS excluding CRBRED","Petersburg Wrangell","Sitka Pelican","South Peninsula","Yakutat","Yukon","Dutch Harbor","Adak Western Aleutians")
+h_ext <- subset (h, AREA %in% keep)  
+#drop the Confidential column
+h_ext <- subset(h_ext, select = -CONFIDENTIAL)
+
+#Adding SASAP regions
+harvest_regions <- read.csv("E:/GoogleDrive/CURRENT_PROJECTS/3_SASAP_salmon_synthesis/Analysis_ref_files/harvest_regions.csv", stringsAsFactors=FALSE)
+h_ext2 <- h_ext %>% 
+  full_join(harvest_regions, by = c("AREA" = "ADFG_Area")) %>%
+  na.omit()
+h_ext2 <- subset(h_ext2, select = -AREA)
+names(h_ext2)[14]<-"SASAP.Region"
+h_ext2 <-h_ext2 [c("SASAP.Region","YEAR","ADFG_H_GEAR_CODE","ADFG_I_SPECIES_CODE","No_of_Fish","Value","NETPOUNDS","WholeLbs","people_count","processor_count","vessel_count","Gear","Species")]
+
+#Aggregating district by YEAR data to SASAP region level
+district_region_lut <- read.csv("E:/GoogleDrive/CURRENT_PROJECTS/3_SASAP_salmon_synthesis/Analysis_ref_files/district_region_lut.csv", stringsAsFactors=FALSE)
+lut <- district_region_lut
+DbyY <- left_join(DbyY, lut)
+
+dist_agg <- DbyY %>% 
+  group_by(SASAP.Region,YEAR,ADFG_H_GEAR_CODE, ADFG_I_SPECIES_CODE, Gear,Species) %>% 
+  summarise_at(vars(Value:vessel_count), sum, na.rm = TRUE)%>%
+  drop_na(Value)
+
+#ordering columns for later combination with the area by YEAR data
+dist_agg <-dist_agg [c("SASAP.Region","YEAR","ADFG_H_GEAR_CODE","ADFG_I_SPECIES_CODE","No_of_Fish","Value","NETPOUNDS","WholeLbs","people_count","processor_count","vessel_count","Gear","Species")]
+
+#Subsetting for Norton Sound and Kotzebue
+norton <- subset(dist_agg,SASAP.Region=="Norton Sound")
+kotz <- subset(dist_agg,SASAP.Region=="Kotzebue")
+
+#Combining the above to have one dataset for SASAP regions
+harvest_comb <- bind_rows(h_ext2,kotz,norton)
+
+#Cleaning trivial data, e.g. gear=herring gillnet, and removing odd records and gear types with very few and small records e.g. pelagic trawl
+harvest_comb <- subset(harvest_comb, Gear !="pelagic/mid-water trawl")
+harvest_comb <- subset(harvest_comb, Gear !="herring gillnet")
+```
+
+

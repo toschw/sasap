@@ -1,0 +1,277 @@
+---
+title: "EarningsFlows"
+author: "Tobias Schwoerer"
+date: "April 20, 2018"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+Importing Basic Information Table (BIT), available here https://knb.ecoinformatics.org/#view/urn:uuid:a6a4b230-799c-42ea-b331-62a2b1013ee4 then creating table of average earnings by residency status and fishery code and year
+```{r setup, include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(data.table)
+library(tidyr)
+library(RColorBrewer)
+BIT <- read.csv("https://knb.ecoinformatics.org/knb/d1/mn/v2/object/urn%3Auuid%3Aaa308395-54f6-412c-9ca3-0112a1d67938", stringsAsFactors=FALSE)
+#deleting the space in the fisheries code to be consistent with other datasets
+BIT$Fishery <- gsub(" ", "", BIT$Fishery, fixed = TRUE)
+#salmon permit subset
+salmon <- unique(BIT$Fishery[grep("^S", BIT$Fishery)])
+BITs <- subset(BIT, Fishery %in% salmon)
+
+#determining fisheries and years for which we have average earnings (pounds), then fill that in for any missing and throw out remaining missing (19 records with fewer than 3 permits fished)
+BITs$Resident.Average.Earnings <- ifelse(is.na(BITs$Resident.Average.Earnings), BITs$Average.Earnings,BITs$Resident.Average.Earnings)
+BITs$Resident.Average.Pounds <- ifelse(is.na(BITs$Resident.Average.Pounds), BITs$Average.Pounds,BITs$Resident.Average.Pounds)
+BITs$Nonresident.Average.Earnings <- ifelse(is.na(BITs$Nonresident.Average.Earnings), BITs$Average.Earnings,BITs$Nonresident.Average.Earnings)
+BITs$Nonresident.Average.Pounds <- ifelse(is.na(BITs$Nonresident.Average.Pounds), BITs$Average.Pounds,BITs$Nonresident.Average.Pounds)
+
+BITs <- BITs %>% 
+  drop_na(Resident.Average.Earnings,Nonresident.Average.Earnings,Resident.Average.Pounds,Nonresident.Average.Pounds)
+
+#table for average earnings
+avg_earn <- BITs %>%
+  select("Fishery", "Year","Resident.Average.Earnings","Nonresident.Average.Earnings")%>%
+  gather(Type,Avg_earn,Resident.Average.Earnings,Nonresident.Average.Earnings)
+avg_earn$Type[avg_earn$Type=="Resident.Average.Earnings"] <- "res"
+avg_earn$Type[avg_earn$Type=="Nonresident.Average.Earnings"] <- "non"
+
+#table for average lbs harvested
+avg_lbs <- BITs %>%
+  select("Fishery", "Year","Resident.Average.Pounds","Nonresident.Average.Pounds")%>%
+  gather(Type,Avg_lbs,Resident.Average.Pounds,Nonresident.Average.Pounds)
+avg_lbs$Type[avg_lbs$Type=="Resident.Average.Pounds"] <- "res"
+avg_lbs$Type[avg_lbs$Type=="Nonresident.Average.Pounds"] <- "non"
+
+#table for proportion of renewed permits that fished 
+BITs$res_fished <- BITs$Resident.Total.Permits.Fished/BITs$Resident.Permits.Issued.Renewed
+BITs$non_fished <- BITs$Nonresident.Total.Permits.Fished/BITs$Nonresident.Permits.Issued.Renewed
+fished <- BITs %>%
+  select("Fishery", "Year","res_fished","non_fished")%>%
+  gather(Type,p_fished,res_fished,non_fished)
+fished$Type[fished$Type=="res_fished"] <- "res"
+fished$Type[fished$Type=="non_fished"] <- "non"
+```
+
+Importing permitholder database 
+I - unlimited open access
+E - interim entry limited
+M - moratorium
+P - permanent limited entry
+```{r}
+#pholders <- read.csv("https://knb.ecoinformatics.org/knb/d1/mn/v2/object/urn%3Auuid%3A02126b87-a78b-46ed-8214-3236f234d0b7", stringsAsFactors=FALSE)
+#pholders <- read.csv("https://drive.google.com/file/d/1eA0vtYoXUa7ODtbLI066DNNZl9v9MEcu/view?usp=sharing", stringsAsFactors = FALSE)
+#pholders <- read.csv("E:/GoogleDrive/CURRENT_PROJECTS/3_SASAP_salmon_synthesis/Analysis_ref_files/CFEC_Permits_1975-2016.csv",stringsAsFactors = FALSE)
+#adding SASAPRegions
+#regions <- read.csv("https://drive.google.com/file/d/1setidHN984d8N-m7PTGWK4a75rxPYswZ/view?usp=sharing", stringsAsFactors=FALSE)
+
+pholders <- `CFEC_Permits_1975.2016.(3)`%>%
+  mutate_if(is.factor, as.character)
+
+regions <- read.csv("E:/GoogleDrive/CURRENT_PROJECTS/3_SASAP_salmon_synthesis/Analysis_ref_files/index_table_041918.csv", stringsAsFactors = FALSE)
+regions <- subset(regions,select= c("Community", "SASAPRegions", "Urban"))
+regions <- mutate_at(regions,vars(Community), funs(toupper))
+
+pholders <- pholders %>%
+  left_join(regions, by = c("City"="Community"))
+```
+
+Specifying Residency region and fishing region
+```{r}
+#Residency_region
+names(pholders)[names(pholders)=="SASAPRegions"] <- "Residency_region"
+#dealing with non-residents
+pholders$Residency_region <- ifelse(is.na(pholders$Residency_region), "Outside Alaska", pholders$Residency_region)
+
+#subset salmon permit holders
+salmon2 <- unique(pholders$Fishery[grep("^S", pholders$Fishery)])
+sholders <- subset(pholders, Fishery %in% salmon2)
+
+#Fishing region based on fishery code
+f <- read.csv("E:/GoogleDrive/CURRENT_PROJECTS/3_SASAP_salmon_synthesis/Analysis_ref_files/fishery_codes_regions.csv", stringsAsFactors=FALSE)
+f <- f[,1:2]
+# making sure fishery codes are formatted the same across datasets
+#f$Fishery <- gsub('^([S])([0-9])', 'S\\ \\2', f$Fishery)
+
+#also dropping less than ten records associated w/ fisheries with no data e.g. S77y etc. 
+sholders1 <- sholders %>%
+  full_join(f, by = c("Fishery"))%>%
+  mutate_if(is.factor, as.character)
+
+#Renaming columns to specify fishing_region
+names(sholders1)[names(sholders1)=="SASAPRegions"] <- "Fishing_region"
+#Creating fisheries code consistent across other datasets used here, there are no moratorium salmon permits, so do not need subset
+#sholders1$Fishery <- gsub('^([S])([0-9])', 'S\\ \\2', sholders1$Fishery)
+
+#Subsetting for current owners
+sholders1 <- subset(sholders1,Permit.Status=="Current Owner")
+```
+
+#Creating table by adding average earnings, proportion of permits fished, and average lbs harvested to above permitholder database
+```{r}
+s <- sholders1%>%
+  group_by(Year, Fishery, Residency_region, Fishing_region, Residency,City, Urban)%>%
+  summarise(Permit_Count = n_distinct(Permit.Number))
+
+#recoding residency status in sholders to match other datasets
+s$Residency[s$Residency=="R"] <- "res"
+s$Residency[s$Residency=="N"|s$Residency=="U"] <- "non"
+
+sholders2 <- s%>%
+  full_join(fished, by = c("Fishery","Year", "Residency" = "Type"))%>%
+  full_join(avg_earn, by = c("Fishery","Year", "Residency" = "Type"))%>%
+  full_join(avg_lbs, by = c("Fishery","Year", "Residency" = "Type"))%>%  
+  drop_na(Fishery)
+
+#Estimating earnings from BIT and individual permit holder database by community and fishery
+sholders2$earnings <- sholders2$p_fished*sholders2$Permit_Count*sholders2$Avg_earn
+sholders2$lbs <- sholders2$p_fished*sholders2$Permit_Count*sholders2$Avg_lbs
+
+# summarizing to get sum of estimated earnings across fisheries
+sholders3 <- sholders2 %>%
+  group_by(Year, Residency_region, City, Fishing_region, Urban) %>%
+  summarise(earnings_est = sum(earnings))
+```
+
+Comparing the above estimates by community and fishery to public data in https://knb.ecoinformatics.org/#view/urn:uuid:75de1e74-bf52-41fa-a120-0570736563f5
+```{r}
+#Importing fishticket dataset for earnings by community 
+#FT <- read.csv("https://drive.google.com/file/d/1h0TWifG-8hHsTNyn3KNdPZHmL9fvOtBZ/view?usp=sharing", stringsAsFactors = FALSE)
+FT <- read.csv("https://knb.ecoinformatics.org/knb/d1/mn/v2/object/urn%3Auuid%3A3679e992-f580-4b87-a368-8b0e2b5dc30c", stringsAsFactors = FALSE)
+#adding region information
+FT2 <- FT %>%
+  left_join(regions, by = c("CFEC_ADR_CITY"="Community")) %>%
+  replace_na(replace=list(SASAPRegions="Outside Alaska",CONFIDENTIAL="PUBLIC"))
+names(FT2)[names(FT2)=="SASAPRegions"] <- "Residency_region"
+  
+# Subsetting to get a salmon dataset with public data
+salmon <- c("chinook","sockeye","chum","pink","coho" )
+salFT <- subset(FT2, clade %in% salmon )
+names(salFT)[names(salFT)=="YEAR"] <- "Year"
+names(salFT)[names(salFT)=="CFEC_ADR_CITY"] <- "City"
+salFTpublic <- salFT%>%
+  subset(CONFIDENTIAL=="PUBLIC")%>%
+  group_by(Year, Residency_region, City, Urban) %>%
+  summarise(earnings_public = sum(value))
+
+#Joining the above public earnings and harvest by community to the estimated earnings
+comparison <- sholders3 %>%
+  full_join(salFTpublic, by = c("Year","Residency_region", "City", "Urban"))%>%
+  spread(Fishing_region,earnings_est)
+comparison[is.na(comparison)] <- 0
+#deleting column related to Cities that did not show up in SalFTpublic but in the permit database, column NA 
+comparison<-comparison[, grep("NA", names(comparison), value = TRUE, invert = TRUE)]
+# calculating sum of estimated earnings across fishing regions
+comparison$earnings_est <- rowSums(comparison[,c(6:18)])
+
+#renaming columns for easier reference
+names(comparison)[names(comparison)=="Alaska Peninsula and Aleutian Islands"] <- "APAI"
+names(comparison)[names(comparison)=="Bristol Bay"] <- "BB"
+names(comparison)[names(comparison)=="Copper River"] <- "CR"
+names(comparison)[names(comparison)=="Cook Inlet"] <- "CI"
+names(comparison)[names(comparison)=="Norton Sound"] <- "NS"
+names(comparison)[names(comparison)=="Prince William Sound"] <- "PWS"
+names(comparison)[names(comparison)=="Kuskokwim"] <- "Kusko"
+names(comparison)[names(comparison)=="Kotzebue"] <- "Kotz"
+names(comparison)[names(comparison)=="Southeast"] <- "SE"
+```
+
+For residents, adjust the individual fisheries earnings proportionally to eventually sum to the published total. For non-residents, use the estimates regardless because non-residents are more likely subject to confidentiality rules. 
+```{r}
+#summarizing earnings by region, leaving statewide in
+earnings <- comparison %>%
+  group_by(Year,Residency_region,Urban, APAI,BB,Chignik,CI,CR,Kodiak,Kotz,Kusko,NS,PWS,SE,Statewide,Yukon)%>%
+  summarise(s_APAI = sum(APAI),
+            s_BB = sum(BB),
+            s_Chignik = sum(Chignik),
+            s_CI = sum(CI),
+            s_CR = sum(CR),
+            s_Kodiak = sum(Kodiak),
+            s_Kotz = sum(Kotz),
+            s_Kusko = sum(Kusko),
+            s_NS = sum(NS),
+            s_PWS = sum(PWS),
+            s_SE = sum(SE),
+            s_Yukon = sum(Yukon),
+            s_Statewide = sum(Statewide))
+
+#dropping columns, not needed for earnings analysis
+earnings <- subset(earnings, select = -c(APAI:Yukon))
+earnings2 <- subset(earnings, earnings$Residency_region != 0)
+
+earnings3 <- earnings2%>%
+  gather(key = c("Orig","Urban"), earnings, s_APAI, s_BB, s_Chignik, s_CI, s_CR, s_Kodiak, s_Kotz, s_Kusko, s_NS, s_PWS, s_SE, s_Yukon, s_Statewide)
+names(earnings3)[4] <- "Fishing_region"
+
+#joining a reference table to change to consistent region names across Dest and Orig
+index_table_EarningsFlow <- read.csv("E:/GoogleDrive/CURRENT_PROJECTS/3_SASAP_salmon_synthesis/Analysis_ref_files/index_table_EarningsFlow.csv", stringsAsFactors=FALSE)
+
+earnings4 <- earnings3 %>%
+ inner_join(index_table_EarningsFlow, by = c("Fishing_region" = "Orig"))
+earnings4 <- subset(earnings4, select = -c(Fishing_region))
+names(earnings4)[names(earnings4)=="Region"] <- "Fishing_region"
+
+
+#BLS CPI data for Anchorage and computing earnings in real 2018 terms (base 218.873)
+cpi <- read.csv("E:/GoogleDrive/CURRENT_PROJECTS/3_SASAP_salmon_synthesis/Analysis_ref_files/CPI_US_ANC.csv", stringsAsFactors=FALSE)
+
+#expanding to have same set of regions for Dest and Orig
+e1 <- earnings4
+e2 <-expand.grid(Fishing_region=unique(e1$Fishing_region), Year=1975:2016, Residency_region=unique(e1$Residency_region), Urban=0:1)
+e3 <- merge(e2,e1, by.x=c("Year", "Residency_region", "Fishing_region", "Urban"),by.y=c("Year", "Residency_region", "Fishing_region", "Urban"), all.x = TRUE)
+e3[is.na(e3)]<-0
+
+e4 <- e3 %>%
+  full_join(cpi, by=c("Year"))%>%
+  mutate(real_earnings = earnings*218/ANC)%>%
+  mutate_if(is.factor,as.character)
+
+e4 <- subset(e4, select = -c(ANC,US))
+```
+
+Earnings by fishing region and user group
+```{r}
+#Coding residency column consisting of five types of permit holders: non-residents, resident local urban, resident local rural, resident non-local urban, resident non-local rural
+e4$type <- ifelse(e4$Residency_region=="Outside Alaska", "nonresident", ifelse((e4$Residency_region==e4$Fishing_region) & e4$Urban==1,"resident local urban",ifelse((e4$Residency_region==e4$Fishing_region)&e4$Urban==0, "resident local rural", ifelse((e4$Residency_region!=e4$Fishing_region)&e4$Urban==1,"resident nonlocal urban","resident nonlocal rural"))))
+
+e5 <- e4 %>%
+   group_by(Year,Fishing_region,type)%>%
+   summarise(real_earnings = sum(real_earnings)/1000000)%>%
+  drop_na()
+
+ggplot(e5, aes(x=Year,y=real_earnings,fill=type)) + geom_area() + labs(title="Salmon Fisheries Real Permit Earnings by Fishing Region and Permit Owner Type",x="Year",y="Millions of 2017 $") + scale_fill_discrete(name = "Permit Owner Type") + facet_wrap(~Fishing_region,ncol = 3, scales = "free")+ theme(legend.position = c(0.9, 0.05))+ labs(title="Salmon Fisheries Real Permit Earnings by Permit Owner Type",x="Year",y="Millions of 2017 $", caption = "Note, Statewide refers to statewide troll fisheries, not aggregate of the regional information shown.")
+```
+
+NS <- subset(e5, Fishing_region=="Norton Sound")
+NS <- NS %>%
+  group_by(Year,type)%>%
+  summarise(real_earnings = sum(real_earnings)/1000000)
+ggplot(NS, aes(x=Year,y=real_earnings,fill=type)) + geom_area()
+
+
+
+```
+
+Looking into how permit ownership varied
+```{r}
+t <- sholders2
+t$type <- ifelse(t$Residency_region=="Outside Alaska", "nonresident", ifelse((t$Residency_region==t$Fishing_region) & t$Urban==1,"resident local urban",ifelse((t$Residency_region==t$Fishing_region)&t$Urban==0, "resident local rural", ifelse((t$Residency_region!=t$Fishing_region)&t$Urban==1,"resident nonlocal urban","resident nonlocal rural"))))
+
+
+
+Nortont1 <- subset(t1,Fishing_region=="Norton Sound")
+ggplot(Nortont1, aes(x=Year,y=Permitsfished,color=type)) + geom_line() + labs(title="% of Fisheries Permits Fished in Each Fishing Region by Permit Owner Type",x="Year",y="Permit count") + scale_color_discrete(name = "Permit Owner Type") + theme(legend.position = c(0.9, 0.05))
+```
+
+Tryng to figure out discrepancies in the data by comparing BIT with my estimates
+```{r}
+S04Z <- subset(BITs,Fishery=="S04Z")
+
+
+S04Z <- S04Z %>%
+  dplyr::full_join(cpi, by=c("Year"))%>%
+  dplyr::mutate(real_earnings = Total.Earnings/(ANC/100))%>%
+  dplyr::mutate_if(is.factor,as.character)
+ggplot(S04Z, aes(x=Year,y=real_earnings)) + geom_line()
+
+```
