@@ -6,7 +6,7 @@ output: html_document
 editor_options: 
   chunk_output_type: console
 ---
-
+Old R markdown document
 Fishing vessels in Alaska fall into two categories for registration purposes: 1) Coast Guard certified, and 2) not CG certified. For 1) the owners needs to register with the CG, for 2) registration with DMV occurs. Each boat has a unique ADFG ID that stays with the boat over its lifetime (valid for skiffs and boats in the case of Purse Seine)
 
 #Importing vessel information from CFEC
