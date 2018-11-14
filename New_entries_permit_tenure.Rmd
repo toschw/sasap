@@ -22,7 +22,7 @@ library(RColorBrewer)
 p <- read.csv(url("https://knb.ecoinformatics.org/knb/d1/mn/v2/object/urn%3Auuid%3A02126b87-a78b-46ed-8214-3236f234d0b7"))
 
 #Reference table of communities by SASAP Regions incl. CFEC defined urban communities
-regions <- read.csv("E:/GoogleDrive/CURRENT_PROJECTS/3_SASAP_salmon_synthesis/Analysis_ref_files/index_table_051118.csv", stringsAsFactors=F)
+regions <- read.csv("reference_tables/index_table_051118.csv", stringsAsFactors=F)
 regions <- subset(regions,select= c("Community", "SASAPRegions","Urban"))
 regions <- mutate_at(regions,vars(Community), funs(toupper))
 ```
@@ -100,7 +100,7 @@ entrants <- entrants %>%
     dplyr::summarise(entrants = sum(cum_yrs))
 
 #adding gear description to fisheries code
-g <- read.csv("E:/GoogleDrive/CURRENT_PROJECTS/3_SASAP_salmon_synthesis/Analysis_ref_files/gear_codes.csv", stringsAsFactors = F)
+g <- read.csv("reference_tables/gear_codes.csv", stringsAsFactors = F)
 
 entrants$gear_code <- substr(entrants$Fishery,2,3)
 entrants$gear_code <- as.integer(entrants$gear_code)

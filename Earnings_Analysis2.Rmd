@@ -59,16 +59,11 @@ E - interim entry limited
 M - moratorium
 P - permanent limited entry
 ```{r}
-#pholders <- read.csv("https://knb.ecoinformatics.org/knb/d1/mn/v2/object/urn%3Auuid%3A02126b87-a78b-46ed-8214-3236f234d0b7", stringsAsFactors=FALSE)
-#pholders <- read.csv("https://drive.google.com/file/d/1eA0vtYoXUa7ODtbLI066DNNZl9v9MEcu/view?usp=sharing", stringsAsFactors = FALSE)
-#pholders <- read.csv("E:/GoogleDrive/CURRENT_PROJECTS/3_SASAP_salmon_synthesis/Analysis_ref_files/CFEC_Permits_1975-2016.csv",stringsAsFactors = FALSE)
-#adding SASAPRegions
-#regions <- read.csv("https://drive.google.com/file/d/1setidHN984d8N-m7PTGWK4a75rxPYswZ/view?usp=sharing", stringsAsFactors=FALSE)
-
+pholders <- read.csv("https://knb.ecoinformatics.org/knb/d1/mn/v2/object/urn%3Auuid%3A02126b87-a78b-46ed-8214-3236f234d0b7", stringsAsFactors=FALSE)
 pholders <- `CFEC_Permits_1975.2016.(3)`%>%
   mutate_if(is.factor, as.character)
 
-regions <- read.csv("E:/GoogleDrive/CURRENT_PROJECTS/3_SASAP_salmon_synthesis/Analysis_ref_files/index_table_041918.csv", stringsAsFactors = FALSE)
+regions <- read.csv("reference_tables/index_table_051118.csv", stringsAsFactors = FALSE)
 regions <- subset(regions,select= c("Community", "SASAPRegions", "Urban"))
 regions <- mutate_at(regions,vars(Community), funs(toupper))
 
@@ -88,7 +83,7 @@ salmon2 <- unique(pholders$Fishery[grep("^S", pholders$Fishery)])
 sholders <- subset(pholders, Fishery %in% salmon2)
 
 #Fishing region based on fishery code
-f <- read.csv("E:/GoogleDrive/CURRENT_PROJECTS/3_SASAP_salmon_synthesis/Analysis_ref_files/fishery_codes_regions.csv", stringsAsFactors=FALSE)
+f <- read.csv("reference_tables/fishery_codes_regions.csv", stringsAsFactors=FALSE)
 f <- f[,1:2]
 # making sure fishery codes are formatted the same across datasets
 #f$Fishery <- gsub('^([S])([0-9])', 'S\\ \\2', f$Fishery)
@@ -136,7 +131,7 @@ sholders3 <- sholders2 %>%
 Comparing the above estimates by community and fishery to public data in https://knb.ecoinformatics.org/#view/urn:uuid:75de1e74-bf52-41fa-a120-0570736563f5
 ```{r}
 #Importing fishticket dataset for earnings by community 
-#FT <- read.csv("https://drive.google.com/file/d/1h0TWifG-8hHsTNyn3KNdPZHmL9fvOtBZ/view?usp=sharing", stringsAsFactors = FALSE)
+
 FT <- read.csv("https://knb.ecoinformatics.org/knb/d1/mn/v2/object/urn%3Auuid%3A3679e992-f580-4b87-a368-8b0e2b5dc30c", stringsAsFactors = FALSE)
 #adding region information
 FT2 <- FT %>%
@@ -204,7 +199,7 @@ earnings3 <- earnings2%>%
 names(earnings3)[4] <- "Fishing_region"
 
 #joining a reference table to change to consistent region names across Dest and Orig
-index_table_EarningsFlow <- read.csv("E:/GoogleDrive/CURRENT_PROJECTS/3_SASAP_salmon_synthesis/Analysis_ref_files/index_table_EarningsFlow.csv", stringsAsFactors=FALSE)
+index_table_EarningsFlow <- read.csv("reference_tables/index_table_EarningsFlow.csv", stringsAsFactors=FALSE)
 
 earnings4 <- earnings3 %>%
  inner_join(index_table_EarningsFlow, by = c("Fishing_region" = "Orig"))
@@ -213,7 +208,7 @@ names(earnings4)[names(earnings4)=="Region"] <- "Fishing_region"
 
 
 #BLS CPI data for Anchorage and computing earnings in real 2018 terms (base 218.873)
-cpi <- read.csv("E:/GoogleDrive/CURRENT_PROJECTS/3_SASAP_salmon_synthesis/Analysis_ref_files/CPI_US_ANC.csv", stringsAsFactors=FALSE)
+cpi <- read.csv("reference_tables/CPI_US_ANC.csv", stringsAsFactors=FALSE)
 
 #expanding to have same set of regions for Dest and Orig
 e1 <- earnings4

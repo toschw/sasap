@@ -23,7 +23,7 @@ library(Hmisc)
 #importing datasets on fishing vessels available from CFEC and the registered boats database from DMV 
 vessels <- read.csv("https://knb.ecoinformatics.org/knb/d1/mn/v2/object/knb.92147.1",stringsAsFactors = FALSE)
  
-regions <-  read.csv("E:/GoogleDrive/CURRENT_PROJECTS/3_SASAP_salmon_synthesis/Analysis_ref_files/index_table_051118.csv", stringsAsFactors=FALSE)
+regions <-  read.csv("reference_tables/index_table_051118.csv", stringsAsFactors=FALSE)
 
 #calculating age of vessels
 cfec <- mutate(vessels, age = Year-Year.Built)
@@ -89,13 +89,13 @@ BITs <- BITs %>%
   drop_na(Resident.Average.Earnings,Nonresident.Average.Earnings,Resident.Average.Pounds,Nonresident.Average.Pounds)
 
 #join SASAP.Regions
-fishery_region <- read.csv("E:/GoogleDrive/CURRENT_PROJECTS/3_SASAP_salmon_synthesis/Analysis_ref_files/fishery_codes_regions.csv", stringsAsFactors=FALSE)
+fishery_region <- read.csv("reference_tables/fishery_codes_regions.csv", stringsAsFactors=FALSE)
 
 BITs <- BITs %>%
   left_join(fishery_region, by=c("Fishery"))
 
 #joining consistent gear types with the vessel data
-gearCodes <- read.csv("E:/GoogleDrive/CURRENT_PROJECTS/3_SASAP_salmon_synthesis/Analysis_ref_files/gear_codes_vessels.csv",stringsAsFactors=F)
+gearCodes <- read.csv("reference_tables/gear_codes_vessels.csv",stringsAsFactors=F)
 BITs$GearCode <- as.numeric(substr(BITs$Fishery, 2, 3))
 BITs <- BITs%>%
   left_join(gearCodes,by=c("GearCode"="CODE"))
@@ -175,7 +175,7 @@ h_ext <- subset (h, AREA %in% keep)
 h_ext <- subset(h_ext, select = -CONFIDENTIAL)
 
 #Adding SASAP regions
-harvest_regions <- read.csv("E:/GoogleDrive/CURRENT_PROJECTS/3_SASAP_salmon_synthesis/Analysis_ref_files/harvest_regions.csv", stringsAsFactors=FALSE)
+harvest_regions <- read.csv("reference_tables/harvest_regions.csv", stringsAsFactors=FALSE)
 h_ext2 <- h_ext %>% 
   full_join(harvest_regions, by = c("AREA" = "ADFG_Area")) %>%
   na.omit()
@@ -184,7 +184,7 @@ names(h_ext2)[14]<-"SASAP.Region"
 h_ext2 <-h_ext2 [c("SASAP.Region","YEAR","ADFG_H_GEAR_CODE","ADFG_I_SPECIES_CODE","No_of_Fish","Value","NETPOUNDS","WholeLbs","people_count","processor_count","vessel_count","Gear","Species")]
 
 #Aggregating district by YEAR data to SASAP region level
-district_region_lut <- read.csv("E:/GoogleDrive/CURRENT_PROJECTS/3_SASAP_salmon_synthesis/Analysis_ref_files/district_region_lut.csv", stringsAsFactors=FALSE)
+district_region_lut <- read.csv("reference_tables/district_region_lut.csv", stringsAsFactors=FALSE)
 lut <- district_region_lut
 DbyY <- left_join(DbyY, lut)
 

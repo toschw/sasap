@@ -31,7 +31,7 @@ h_ext <- subset (h, AREA %in% keep)
 h_ext <- subset(h_ext, select = -CONFIDENTIAL)
 
 #Adding SASAP regions
-harvest_regions <- read.csv("E:/GoogleDrive/CURRENT_PROJECTS/3_SASAP_salmon_synthesis/Analysis_ref_files/harvest_regions.csv", stringsAsFactors=FALSE)
+harvest_regions <- read.csv("reference_tables/harvest_regions.csv", stringsAsFactors=FALSE)
 h_ext2 <- h_ext %>% 
   full_join(harvest_regions, by = c("AREA" = "ADFG_Area")) %>%
   na.omit()
@@ -42,7 +42,7 @@ h_ext2 <-h_ext2 [c("SASAP.Region","YEAR","ADFG_H_GEAR_CODE","ADFG_I_SPECIES_CODE
 
 Aggregating district by YEAR data to SASAP region level
 ```{r}
-district_region_lut <- read.csv("E:/GoogleDrive/CURRENT_PROJECTS/3_SASAP_salmon_synthesis/Analysis_ref_files/district_region_lut.csv", stringsAsFactors=FALSE)
+district_region_lut <- read.csv("reference_tables/district_region_lut.csv", stringsAsFactors=FALSE)
 lut <- district_region_lut
 DbyY <- left_join(DbyY, lut)
 
@@ -287,7 +287,7 @@ ss2 <- ss%>%
   summarise(HarvestLbs = sum(HarvestLbs))
 
 pu <- read.csv("https://knb.ecoinformatics.org/knb/d1/mn/v2/object/urn%3Auuid%3A638adfdc-8313-45f5-b437-886556dfdf34", stringsAsFactors = FALSE)
-PUregions <- read.csv("E:/GoogleDrive/CURRENT_PROJECTS/3_SASAP_salmon_synthesis/Analysis_ref_files/pu_regions.csv", stringsAsFactors = FALSE) 
+PUregions <- read.csv("reference_tables/pu_regions.csv", stringsAsFactors = FALSE) 
 
 pu <- pu %>%
   left_join(PUregions, by="FisheryName")
