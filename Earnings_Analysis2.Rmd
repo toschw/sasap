@@ -195,7 +195,9 @@ earnings <- subset(earnings, select = -c(APAI:Yukon))
 earnings2 <- subset(earnings, earnings$Residency_region != 0)
 
 earnings3 <- earnings2%>%
-  gather(key = c("Orig","Urban"), earnings, s_APAI, s_BB, s_Chignik, s_CI, s_CR, s_Kodiak, s_Kotz, s_Kusko, s_NS, s_PWS, s_SE, s_Yukon, s_Statewide)
+  gather(key = "Orig", value = "earnings", s_APAI: s_Statewide)
+
+
 names(earnings3)[4] <- "Fishing_region"
 
 #joining a reference table to change to consistent region names across Dest and Orig
@@ -207,7 +209,7 @@ earnings4 <- subset(earnings4, select = -c(Fishing_region))
 names(earnings4)[names(earnings4)=="Region"] <- "Fishing_region"
 
 
-#BLS CPI data for Anchorage and computing earnings in real 2018 terms (base 218.873)
+#BLS CPI data for Anchorage and computing earnings in real 2017 terms (base 218.873)
 cpi <- read.csv("reference_tables/CPI_US_ANC.csv", stringsAsFactors=FALSE)
 
 #expanding to have same set of regions for Dest and Orig
@@ -268,5 +270,38 @@ S04Z <- S04Z %>%
   dplyr::mutate(real_earnings = Total.Earnings/(ANC/100))%>%
   dplyr::mutate_if(is.factor,as.character)
 ggplot(S04Z, aes(x=Year,y=real_earnings)) + geom_line()
+
+```
+
+Coefficient of variation across fisheries occuring in a region
+```{}
+variability <- e5 %>%
+  group_by(Year,Fishing_region,type)%>%
+  summarise(total_real_earnings = sum(real_earnings))
+variability <- variability[variability$Fishing_region != "Statewide",]
+  
+variabilityRegionType <- variability %>%
+  group_by(Fishing_region,type)%>%
+  summarise(mean_earnings = mean(total_real_earnings),
+            SD_earnings = sd(total_real_earnings),
+            CV = SD_earnings/mean_earnings)
+
+variability_by_region <- variability %>%
+  group_by(Fishing_region)%>%
+  summarise(total_historical = sum(total_real_earnings),
+            mean_earnings = mean(total_real_earnings),
+            SD_earnings = sd(total_real_earnings),
+            CV = SD_earnings/mean_earnings)
+            
+variability_by_region_sorted_total <- variability_by_region[order(-variability_by_region$total_historical),] 
+
+variability_by_region_sorted_CV <- variability_by_region[order(variability_by_region$CV),] 
+averageCV <- mean(variability_by_region$CV)
+averageCV
+
+ggplot(variability_by_region, aes(x=Fishing_region,y=CV)) +geom_bar(stat="identity", width=0.5)
+
+
+
 
 ```
