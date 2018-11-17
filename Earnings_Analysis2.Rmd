@@ -301,7 +301,87 @@ averageCV
 
 ggplot(variability_by_region, aes(x=Fishing_region,y=CV)) +geom_bar(stat="identity", width=0.5)
 
+```
+
+```{}
+#make separate chart for different region
+
+AKPen<-e5[which(e5$Fishing_region=="Alaska Peninsula and Aleutian Islands"), ]
+BristolBay<-e5[which(e5$Fishing_region=="Bristol Bay"), ]
+Chignik<-e5[which(e5$Fishing_region=="Chignik"), ]
+CookInlet<-e5[which(e5$Fishing_region=="Cook Inlet"), ]
+CopperRiver<-e5[which(e5$Fishing_region=="Copper River"), ]
+Kodiak<-e5[which(e5$Fishing_region=="Kodiak"), ]
+Kotzebue<-e5[which(e5$Fishing_region=="Kotzebue"), ]
+NortonSound<-e5[which(e5$Fishing_region=="Norton Sound"), ]
+Kuskokwim<-e5[which(e5$Fishing_region=="Kuskokwim"), ]
+Southeast<-e5[which(e5$Fishing_region=="Southeast"), ]
+Yukon<-e5[which(e5$Fishing_region=="Yukon"), ]
+PWS<-e5[which(e5$Fishing_region=="Prince William Sound"), ]
+
+region <- c(AKPen, BristolBay,Chignik,CookInlet,CopperRiver,Kodiak,Kotzebue,NortonSound,Kuskokwim,Southeast,Yukon,PWS)
+
+regionName <- c("Alaska Peninsula and Aleutian Islands", "Bristol Bay","Chignik","Cook Inlet","Copper River","Kodiak","Kotzebue","Norton Sound","Kuskokwim","Southeast","Yukon","Prince William Sound")
 
 
+for (i in region){
+  for (j in regionName) {
+  ggplot(region, aes(x=Year,real_earnings,fill=type)) + geom_area() + labs(title="Salmon Fisheries Real Harvest Revenue  \nby regionName",x="Year",y="million of 2017 $") +theme(legend.position = c(0.7, 0.8)) + theme_bw() + scale_fill_discrete(name = "")
+  }
+}
+
+
+
+
+
+
+ggplot(BristolBay, aes(x=Year,real_earnings,fill=type)) + geom_area() + labs(title="Salmon Fisheries Real Harvest Revenue by Fishing Region and Permit Owner Type \nBristol Bay",x="Year",y="million of 2017 $") +theme(legend.position = c(0.7, 0.8)) +theme_bw()+ scale_fill_discrete(name = "")
+
+
+
+ggplot(Chignik, aes(x=Year,real_earnings,fill=type)) + geom_area() + labs(title="Salmon Fisheries Real Harvest Revenue by Fishing Region and Permit Owner Type \nChignik",x="Year",y="million of 2017 $") +theme(legend.position = c(0.7, 0.8)) +theme_bw()+ scale_fill_discrete(name = "")
+
+
+
+ggplot(CookInlet, aes(x=Year,real_earnings,fill=type)) + geom_area() + labs(title="Salmon Fisheries Real Harvest Revenue by Fishing Region and Permit Owner Type \nCook Inlet",x="Year",y="million of 2017 $") +theme(legend.position = c(0.7, 0.8)) +theme_bw()+ scale_fill_discrete(name = "")
+
+
+
+ggplot(CopperRiver, aes(x=Year,real_earnings,fill=type)) + geom_area() + labs(title="Salmon Fisheries Real Harvest Revenue by Fishing Region and Permit Owner Type \nCopper River",x="Year",y="million of 2017 $") +theme(legend.position = c(0.7, 0.8)) +theme_bw()+ scale_fill_discrete(name = "")
+
+
+ggplot(Kodiak, aes(x=Year,real_earnings,fill=type)) + geom_area() + labs(title="Salmon Fisheries Real Harvest Revenue by Fishing Region and Permit Owner Type \nKodiak",x="Year",y="million of 2017 $") +theme(legend.position = c(0.7, 0.8)) +theme_bw()+ scale_fill_discrete(name = "")
+
+
+
+ggplot(Kotzebue, aes(x=Year,real_earnings,fill=type)) + geom_area() + labs(title="Salmon Fisheries Real Harvest Revenue by Fishing Region and Permit Owner Type \nKotzebue",x="Year",y="million of 2017 $") +theme(legend.position = c(0.7, 0.8)) +theme_bw()+ scale_fill_discrete(name = "")
+
+
+
+ggplot(Kuskokwim, aes(x=Year,real_earnings,fill=type)) + geom_area() + labs(title="Salmon Fisheries Real Harvest Revenue by Fishing Region and Permit Owner Type \nKuskokwim",x="Year",y="million of 2017 $") +theme(legend.position = c(0.7, 0.8)) +theme_bw()+ scale_fill_discrete(name = "")
+
+
+
+ggplot(NortonSound, aes(x=Year,real_earnings,fill=type)) + geom_area() + labs(title="Salmon Fisheries Real Harvest Revenue by Permit Owner Residency \nNorton Sound",x="Year",y="million of 2017 $") +theme(legend.position = c(0.7, 0.8)) +theme_bw()+ scale_fill_discrete(name = "")
+
+
+
+ggplot(PWS, aes(x=Year,real_earnings,fill=type)) + geom_area() + labs(title="Salmon Fisheries Real Harvest Revenue by Permit Owner Residency \nPrince William Sound",x="Year",y="million of 2017 $") +theme(legend.position = c(0.7, 0.8)) +theme_bw()+ scale_fill_discrete(name = "")
+
+
+
+ggplot(Southeast, aes(x=Year,real_earnings,fill=type)) + geom_area() + labs(title="Salmon Fisheries Real Harvest Revenue by Permit Owner Residency \nSoutheast",x="Year",y="million of 2017 $") +theme(legend.position = c(0.7, 0.8)) +theme_bw()+ scale_fill_discrete(name = "")
+
+
+ggplot(AKPen, aes(x=Year,real_earnings,fill=type)) + geom_area() + labs(title="Salmon Fisheries Real Harvest Revenue by Permit Owner Residency \nAlaska Peninsula and Aleutian Islands",x="Year",y="million of 2017 $") +theme(legend.position = c(0.7, 0.8)) + theme_bw() + scale_fill_discrete(name = "")
+
+ggplot(Yukon, aes(x=Year,real_earnings,fill=type)) + geom_area() + labs(title="Salmon Fisheries Real Harvest Revenue by Permit Owner Residency \nYukon",x="Year",y="million of 2017 $") +theme(legend.position = c(0.7, 0.8)) + theme_bw() + scale_fill_discrete(name = "")
+
+
+NS <- subset(e5, Fishing_region=="Norton Sound")
+NS <- NS %>%
+  group_by(Year,type)%>%
+  summarise(real_earnings = sum(real_earnings)/1000000)
+ggplot(NS, aes(x=Year,y=real_earnings,fill=type)) + geom_area()
 
 ```
