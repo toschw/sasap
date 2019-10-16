@@ -125,7 +125,7 @@ sholders2$lbs <- sholders2$p_fished*sholders2$Permit_Count*sholders2$Avg_lbs
 # summarizing to get sum of estimated earnings across fisheries
 sholders3 <- sholders2 %>%
   group_by(Year, Residency_region, City, Fishing_region, Urban) %>%
-  summarise(earnings_est = sum(earnings, na.rm = TRUE))
+  summarise(earnings_est = sum(earnings, na.rm=))
 ```
 
 Comparing the above estimates by community and fishery to public data in https://knb.ecoinformatics.org/#view/urn:uuid:75de1e74-bf52-41fa-a120-0570736563f5
@@ -151,30 +151,32 @@ salFTpublic <- salFT%>%
 
 #Joining the above public earnings and harvest by community to the estimated earnings
 comparison <- sholders3 %>%
-  full_join(salFTpublic, by = c("Year","Residency_region", "City", "Urban"))%>%
-  spread(Fishing_region,earnings_est)
-comparison[is.na(comparison)] <- 0
+  full_join(salFTpublic, by = c("Year","Residency_region", "City", "Urban"))
+comparison$earningsFinal <- with(comparison, ifelse(is.na(earnings_public), earnings_est,earnings_public))
+comparison2 <- comparison%>%
+  spread(Fishing_region,earningsFinal)
+#comparison2[is.na(comparison2)] <- 0
 #deleting column related to Cities that did not show up in SalFTpublic but in the permit database, column NA 
-comparison<-comparison[, grep("NA", names(comparison), value = TRUE, invert = TRUE)]
+comparison2<-comparison2[, grep("NA", names(comparison2), value = TRUE, invert = TRUE)]
 # calculating sum of estimated earnings across fishing regions
-comparison$earnings_est <- rowSums(comparison[,c(6:18)])
+#comparison2$earningsFinal <- rowSums(comparison2[,c(6:18)])
 
 #renaming columns for easier reference
-names(comparison)[names(comparison)=="Alaska Peninsula and Aleutian Islands"] <- "APAI"
-names(comparison)[names(comparison)=="Bristol Bay"] <- "BB"
-names(comparison)[names(comparison)=="Copper River"] <- "CR"
-names(comparison)[names(comparison)=="Cook Inlet"] <- "CI"
-names(comparison)[names(comparison)=="Norton Sound"] <- "NS"
-names(comparison)[names(comparison)=="Prince William Sound"] <- "PWS"
-names(comparison)[names(comparison)=="Kuskokwim"] <- "Kusko"
-names(comparison)[names(comparison)=="Kotzebue"] <- "Kotz"
-names(comparison)[names(comparison)=="Southeast"] <- "SE"
+names(comparison2)[names(comparison2)=="Alaska Peninsula and Aleutian Islands"] <- "APAI"
+names(comparison2)[names(comparison2)=="Bristol Bay"] <- "BB"
+names(comparison2)[names(comparison2)=="Copper River"] <- "CR"
+names(comparison2)[names(comparison2)=="Cook Inlet"] <- "CI"
+names(comparison2)[names(comparison2)=="Norton Sound"] <- "NS"
+names(comparison2)[names(comparison2)=="Prince William Sound"] <- "PWS"
+names(comparison2)[names(comparison2)=="Kuskokwim"] <- "Kusko"
+names(comparison2)[names(comparison2)=="Kotzebue"] <- "Kotz"
+names(comparison2)[names(comparison2)=="Southeast"] <- "SE"
 ```
 
 For residents, adjust the individual fisheries earnings proportionally to eventually sum to the published total. For non-residents, use the estimates regardless because non-residents are more likely subject to confidentiality rules. 
 ```{r}
 #summarizing earnings by region, leaving statewide in
-earnings <- comparison %>%
+earnings <- comparison2 %>%
   group_by(Year,Residency_region,Urban, APAI,BB,Chignik,CI,CR,Kodiak,Kotz,Kusko,NS,PWS,SE,Statewide,Yukon)%>%
   summarise(s_APAI = sum(APAI),
             s_BB = sum(BB),
